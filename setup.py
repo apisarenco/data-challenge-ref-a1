@@ -19,7 +19,8 @@ setup(
     install_requires=[
         'urllib3',
         'pytz',
-        'pykafka'
+        'pykafka',
+        'psycopg2-binary'
     ],
 
     dependency_links=[
@@ -39,7 +40,8 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'pynger = pynger:main'
+            'pynger = pynger.pynger:main',
+            'kafkapg = pynger.kafkapg:main'
         ],
     }
 )

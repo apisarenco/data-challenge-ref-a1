@@ -1,4 +1,4 @@
-from argparse import ArgumentParser, FileType
+from argparse import ArgumentParser, FileType, Namespace
 from contextlib import contextmanager
 import datetime
 import json
@@ -8,6 +8,7 @@ import re
 import signal
 import socket
 import time
+from types import SimpleNamespace
 from typing import Tuple, Union
 import urllib3
 
@@ -124,10 +125,31 @@ class Metric:
         return getattr(self, key)
 
 
+def enrich_args(args: Namespace) -> SimpleNamespace:
+    """ Stick default config, file config, and CLI args on top of each other
+    @param args: Command-line arguments from argparse
+    @return: Enriched config
+    """
+    default_config = {
+        "delay": 60,
+        "follow_redirect": False
+    }
+    config = json.load(args.config)
+    operation_config = config["operation"]
+    # Ignore empty CLI arguments
+    non_empty_args = dict((key, item) for key, item in args.__dict__.items() if item is not None)
+    default_config.update(operation_config)
+    default_config.update(non_empty_args)
+    # Assign the decoded JSON instead of the open file
+    default_config["config"] = config
+    return SimpleNamespace(**default_config)
+
+
 def parse_args():
     parser = ArgumentParser(description="Produces metrics about website availability")
     parser.add_argument(
-        'url',
+        '-u',
+        '--url',
         help="Target url",
         type=str
     )
@@ -135,7 +157,8 @@ def parse_args():
         '-r',
         '--follow-redirect',
         help="Follow HTTP redirects",
-        action="store_true"
+        action="store_true",
+        default=None
     )
     parser.add_argument(
         '-s',
@@ -146,17 +169,16 @@ def parse_args():
     parser.add_argument(
         '-d',
         '--delay',
-        help="Delay between metrics, in seconds (default 60)",
-        type=int,
-        default=60
+        help="Delay between metrics, in seconds",
+        type=int
     )
     parser.add_argument(
-        '--config',
+        'config',
         help='Config file location',
-        type=FileType('r', encoding='UTF-8'),
-        required=True
+        type=FileType('r', encoding='UTF-8')
     )
-    return parser.parse_args()
+    args = enrich_args(parser.parse_args())
+    return args
 
 
 def get_charset(content_type_str: str) -> Union[str, None]:
@@ -185,12 +207,11 @@ def format_unsupported_types(obj):
 
 
 def connect_kafka(config):
-    kafka_config = config["kafka"]
     # https://github.com/Parsely/pykafka
-    ssl_config = SslConfig(cafile=kafka_config["cafile"],
-                           certfile=kafka_config["certfile"],
-                           keyfile=kafka_config["keyfile"])
-    client = KafkaClient(hosts=kafka_config["hosts"],
+    ssl_config = SslConfig(cafile=config["cafile"],
+                           certfile=config["certfile"],
+                           keyfile=config["keyfile"])
+    client = KafkaClient(hosts=config["hosts"],
                          ssl_config=ssl_config)
     return client
 
@@ -202,7 +223,8 @@ def produce(producer: Producer, metric: Metric):
 
 
 def work(args):
-    config = json.load(args.config)
+    config = args.config
+
     url = urllib3.util.parse_url(args.url)
     port = url.port or (443 if url.scheme == 'https' else 80)
     state = {"running": True}
@@ -216,7 +238,9 @@ def work(args):
 
     connection = connect_kafka(config["kafka"])
     topic = connection.topics[config["kafka"]["topic"]]
-    with topic.get_sync_producer() as producer:
+    # Won't check for delivery reports. Too much work for now
+    # Won't use sync variant because we need to focus on gathering data, not block while trying to send it
+    with topic.get_producer() as producer:
         while True:
             metric = Metric()
             metric.time_connect(host=url.host, port=port)
@@ -229,7 +253,7 @@ def work(args):
             for i in range(args.delay):
                 if not state["running"]:
                     print("Exiting")
-                    return
+                    exit()
                 time.sleep(1)
 
 

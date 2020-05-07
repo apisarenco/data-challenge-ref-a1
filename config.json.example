@@ -1,0 +1,22 @@
+{
+    "operation": {
+        "url": "google.com",
+        "follow_redirect": true,
+        "search_in_content": null,
+        "delay": 60
+    },
+    "kafka": {
+        "hosts": "kafka.host:port",
+        "topic": "metrics",
+        "cafile": "/path/to/ca.pem",
+        "certfile": "/path/to/service.cert",
+        "keyfile": "/path/to/service.key"
+    },
+    "postgresql": {
+        "database": "dbname",
+        "user": "username",
+        "host": "my.postgresql.host",
+        "port": 5432,
+        "password": "wouldn't you like to know"
+    }
+}
