@@ -37,6 +37,7 @@ class Metric:
         # Pool of 1 connection, because we want to measure how long it takes to create one
         # and not to re-use existing
         self.pool = urllib3.PoolManager(maxsize=1)
+        self.pool.__enter__()
 
         # Exception (if any) that is raised during TCP connect
         self.tcp_exception: Union[Exception, None] = None
@@ -56,6 +57,9 @@ class Metric:
         self.content_found: Union[bool, None] = None
         # The timestamp of the creation of the metric object
         self.timestamp = datetime.datetime.now(tz=pytz.utc)
+
+    def __del__(self):
+        self.pool.__exit__(None, None, None)
 
     @contextmanager
     def connect(self, url: str, http_pool: urllib3.PoolManager):
@@ -186,11 +190,11 @@ def get_charset(content_type_str: str) -> Union[str, None]:
         # Convert this "text/html; charset=UTF-8" to this: "UTF-8"
         components = map(lambda s: s.split('='), map(str.strip, content_type_str.split(';')))
         for c in components:
-            if c[0].lower() == 'charset':
-                return c[1]
+            if c[0].lower().strip() == 'charset':
+                return c[1].strip()
 
 
-def match_content(regex, data: bytes, content_type_str: Union[str, None]) -> bool:
+def match_content(regex: str, data: bytes, content_type_str: Union[str, None]) -> bool:
     charset = get_charset(content_type_str) or 'UTF-8'
     try:
         strdata = data.decode(charset)
